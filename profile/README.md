@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.svg" width="72" alt="MinhaSuite">
+<img src="logo.png" width="96" alt="MinhaSuite">
 
 # MinhaSuite
 
@@ -25,9 +25,10 @@
 | | App | O que faz |
 |---|---|---|
 | 🧾 | [**Minhas Vendas**](https://www.minhasuite.com/vendas/?utm_source=github&utm_medium=referral&utm_campaign=org-readme) | Orçamento, pedido, caixa de balcão, estoque, compras e nota, com uma IA que diz o que comprar e quem cobrar. |
+| 📋 | [**Meu Gestor**](https://meugestor.minhasuite.com/?utm_source=github&utm_medium=referral&utm_campaign=org-readme) | Gestão com IA para atacado e varejo: fluxos com prazo e aprovação, conferência do recebimento pela nota, checklist do dia com metas e escala da equipe. Usa os dados do Minhas Vendas. |
 
 ## Um jeito só
 
-- **Os apps conversam.** O que você gasta no Minhas Compras e no Minhas Viagens vira lançamento no Meu Financeiro.
+- **Os apps conversam.** O que você gasta no Minhas Compras e no Minhas Viagens vira lançamento no Meu Financeiro, e o Meu Gestor trabalha em cima das vendas do Minhas Vendas.
 - **Celular e web.** App para Android e, quando faz sentido, a mesma coisa no navegador.
 - **Feito no Brasil**, em português.
