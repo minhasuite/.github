@@ -1,0 +1,58 @@
+name: Reusable Build & Push
+
+# Build da imagem de produção e push para o GHCR. Chamado pelos módulos via
+# `uses: herlondf/minha-infra/.github/workflows/build.yml@master`.
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: "Nome da imagem no GHCR (ex.: meu-personal)"
+        required: true
+        type: string
+      dockerfile:
+        description: "Caminho do Dockerfile de produção"
+        required: false
+        type: string
+        default: Dockerfile.prod
+      image_tag:
+        description: "Tag móvel da imagem (ex.: latest p/ prod, dev p/ staging)"
+        required: false
+        type: string
+        default: latest
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Login to GHCR
+        run: |
+          printf '%s\n' "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push image (with retry)
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}"
+          TAG_MOVING="$IMAGE:${{ inputs.image_tag }}"
+          TAG_SHA="$IMAGE:sha-${{ github.sha }}"
+
+          docker build -f "${{ inputs.dockerfile }}" \
+            --build-arg "GIT_SHA=${{ github.sha }}" \
+            -t "$TAG_MOVING" \
+            -t "$TAG_SHA" \
+            .
+
+          for attempt in 1 2 3; do
+            if docker push "$TAG_MOVING" && docker push "$TAG_SHA"; then
+              echo "Push concluído na tentativa $attempt"
+              exit 0
+            fi
+            echo "Tentativa $attempt falhou; aguardando antes de tentar novamente..."
+            sleep $((attempt * 20))
+          done
+          exit 1

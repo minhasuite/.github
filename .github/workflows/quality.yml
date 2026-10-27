@@ -1,0 +1,160 @@
+name: Reusable Quality
+
+# Rede de segurança: rubocop + brakeman + rspec, com Postgres 18 + Redis 7.
+# Parametrizado porque cada módulo endurece o gate no seu tempo (ver o gate
+# rígido do meu-personal vs o informativo do meu-financeiro enquanto destrava
+# a suíte).
+on:
+  workflow_call:
+    inputs:
+      db_name:
+        description: "Nome do banco de teste (ex.: meu_personal_test)"
+        required: true
+        type: string
+      db_prepare:
+        description: "Como preparar o banco: 'migrate' ou 'schema_load'"
+        required: false
+        type: string
+        default: migrate
+      rspec_soft:
+        description: "true = RSpec informativo (não bloqueia)"
+        required: false
+        type: boolean
+        default: false
+      brakeman_soft:
+        description: "true = Brakeman informativo (--no-exit-on-warn)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  quality:
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ${{ inputs.db_name }}
+        ports: ["5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      RAILS_ENV: test
+      SECRET_KEY_BASE: 0000000000000000000000000000000000000000000000000000000000000000ci0000000000000000000000000000000000000000000000000000000000000000
+
+    steps:
+      # Porta livre no host: no runner self-hosted várias CIs rodam ao mesmo tempo.
+      - name: Portas dos serviços
+        run: |
+          echo "DATABASE_TEST_URL=postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/${{ inputs.db_name }}" >> "$GITHUB_ENV"
+          echo "REDIS_URL=redis://localhost:${{ job.services.redis.ports['6379'] }}/0" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+
+      - name: Quality via Docker (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: |
+          if ! docker image inspect ci-ruby:3.3-v3 >/dev/null 2>&1; then
+            docker build -t ci-ruby:3.3-v3 - <<'DOCKERFILE'
+          FROM ruby:3.3.10-slim
+          RUN apt-get update -qq && \
+              apt-get install -y --no-install-recommends \
+                build-essential git curl ca-certificates gnupg \
+                libpq-dev libyaml-dev libvips libvips-dev pkg-config postgresql-client chromium chromium-driver && \
+              mkdir -p /etc/apt/keyrings && \
+              curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+              echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+              apt-get update -qq && apt-get install -y --no-install-recommends nodejs && \
+              corepack enable && \
+              rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          fi
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE:/app" \
+            -v ci-bundle-cache:/usr/local/bundle \
+            -w /app \
+            -e RAILS_ENV=test \
+            -e DATABASE_TEST_URL="$DATABASE_TEST_URL" \
+            -e REDIS_URL="$REDIS_URL" \
+            -e SECRET_KEY_BASE="$SECRET_KEY_BASE" \
+            ci-ruby:3.3-v3 bash -ec '
+              bundle check || bundle install --jobs 4 --retry 3
+              if [ -f package.json ] && grep -q "\"build:css\"" package.json; then
+                yarn install --frozen-lockfile || yarn install
+                yarn build:css
+              fi
+              bundle exec rubocop --parallel
+              bundle exec brakeman -q --no-pager ${{ inputs.brakeman_soft && '--no-exit-on-warn' || '' }} -i config/brakeman.ignore
+              if [ "${{ inputs.db_prepare }}" = "schema_load" ]; then
+                bundle exec rails db:create db:schema:load
+              else
+                bundle exec rails db:create db:migrate
+              fi
+              bundle exec rspec --format progress ${{ inputs.rspec_soft && '|| true' || '' }}
+            '
+
+      # libvips — só usado por módulos com image_processing (ex.: meu-cultivo,
+      # variantes de foto). Inofensivo pra quem não usa.
+      - name: Instalar libvips
+        if: runner.environment != 'self-hosted'
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libvips42
+
+      - uses: ruby/setup-ruby@v1
+        if: runner.environment != 'self-hosted'
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - uses: actions/setup-node@v5
+        if: runner.environment != 'self-hosted'
+        with:
+          node-version: "20"
+
+      # Módulos com cssbundling-rails (Tailwind via CLI) referenciam
+      # stylesheet_link_tag "application" no layout — sem o CSS compilado,
+      # qualquer request spec que renderize HTML quebra com
+      # Sprockets::Rails::Helper::AssetNotFound, não importa a config de
+      # teste. No-op pra módulos sem esse script.
+      - name: Compilar CSS (se o módulo usa cssbundling-rails)
+        if: runner.environment != 'self-hosted'
+        run: |
+          if [ -f package.json ] && grep -q '"build:css"' package.json; then
+            yarn install --frozen-lockfile || yarn install
+            yarn build:css
+          fi
+
+      - name: Rubocop
+        if: runner.environment != 'self-hosted'
+        run: bundle exec rubocop --parallel
+
+      - name: Brakeman
+        if: runner.environment != 'self-hosted'
+        run: bundle exec brakeman -q --no-pager ${{ inputs.brakeman_soft && '--no-exit-on-warn' || '' }} -i config/brakeman.ignore
+
+      - name: Preparar banco de teste
+        if: runner.environment != 'self-hosted'
+        run: |
+          if [ "${{ inputs.db_prepare }}" = "schema_load" ]; then
+            bundle exec rails db:create db:schema:load
+          else
+            bundle exec rails db:create db:migrate
+          fi
+
+      - name: RSpec
+        if: runner.environment != 'self-hosted'
+        continue-on-error: ${{ inputs.rspec_soft }}
+        run: bundle exec rspec --format progress

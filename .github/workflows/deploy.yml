@@ -1,0 +1,87 @@
+name: Reusable Deploy to VPS
+
+# Envia o compose para a VPS e faz pull + up da imagem nova. Chamado pelos
+# módulos após o Build & Push. A VPS já está autenticada no ghcr.io.
+#
+# O chamador deve passar `secrets: inherit` (usa VPS_HOST/VPS_USER/VPS_SSH_KEY)
+# e ter a var de repo VPS_APP_PATH definida.
+#
+# Usa `ssh`/`scp` direto em vez de appleboy/{scp,ssh}-action: aquelas actions
+# não têm retry, e em 06/08/2026 três deploys seguidos morreram com
+# `dial tcp :22: i/o timeout` — sem que a VPS registrasse UMA tentativa sequer
+# no sshd, ou seja, os pacotes nem chegaram (rede entre o runner e o provedor).
+# O quarto passou sozinho. Com retry o mesmo episódio teria sido invisível.
+#
+# 16/08/2026 — DOIS jobs, e o porquê. O episódio se repetiu (06/08, 10/08, 16/08)
+# e nesse dia entrei na VPS para fechar o diagnóstico:
+#
+#   fail2ban:  não instalado
+#   ufw:       inativo
+#   nftables:  só as regras do Docker, nada em INPUT
+#   kernel:    1 SYN descartado em 121 dias de uptime
+#   sshd:      respondendo normalmente, inclusive de outra rede no mesmo minuto
+#
+# Ou seja: a VPS não recusa nada, os pacotes se perdem ANTES dela. Não há o que
+# liberar em firewall. E as 4 tentativas do laço saem todas do MESMO runner, com
+# o MESMO IP e o mesmo caminho de rede ruim — por isso repetir dentro do job não
+# adianta, e nos dois episódios só o rerun na mão resolveu.
+#
+# Daí o job de recuperação: um runner NOVO, com outro IP e outro caminho. Ele só
+# roda quando a falha foi de rede. Se a aplicação subiu e não passou na saúde, a
+# imagem é que está quebrada, e repetir só ia subi-la de novo — foi exatamente o
+# incidente de 11/08 (imagem ruim no ar 4 vezes porque rc=1 parecia falha de rede).
+#
+# Ensaiado nas duas direções antes de entrar (drill descartado depois):
+#   falha de rede  (host 192.0.2.1, não roteável) -> recuperação DISPAROU
+#   falha de saúde (motivo=saude)                 -> recuperação PULADA
+# A segunda é a que protege: se ela falhar, a imagem quebrada volta ao ar.
+on:
+  workflow_call:
+    inputs:
+      health_container:
+        description: "Container a checar no /up após o deploy (ex.: ms-meu-personal-web)"
+        required: true
+        type: string
+      compose_file:
+        description: "Arquivo compose a enviar/usar"
+        required: false
+        type: string
+        default: docker-compose.prod.yml
+
+jobs:
+  deploy:
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
+    environment: production
+    outputs:
+      motivo: ${{ steps.vps.outputs.motivo }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: vps
+        uses: minhasuite/.github/.github/actions/deploy-vps@master
+        with:
+          ssh_key: ${{ secrets.VPS_SSH_KEY }}
+          host: ${{ secrets.VPS_HOST }}
+          user: ${{ secrets.VPS_USER }}
+          app_path: ${{ vars.VPS_APP_PATH }}
+          compose_file: ${{ inputs.compose_file }}
+          health_container: ${{ inputs.health_container }}
+
+  # Segunda e última chance, num runner novo. `needs.deploy.outputs.motivo` é o
+  # que separa "a rede engoliu os pacotes" de "a aplicação subiu quebrada".
+  deploy-runner-novo:
+    needs: deploy
+    if: always() && needs.deploy.result == 'failure' && needs.deploy.outputs.motivo == 'rede'
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - name: Aviso
+        run: echo "O deploy anterior não alcançou a VPS. Repetindo de outro runner."
+      - uses: minhasuite/.github/.github/actions/deploy-vps@master
+        with:
+          ssh_key: ${{ secrets.VPS_SSH_KEY }}
+          host: ${{ secrets.VPS_HOST }}
+          user: ${{ secrets.VPS_USER }}
+          app_path: ${{ vars.VPS_APP_PATH }}
+          compose_file: ${{ inputs.compose_file }}
+          health_container: ${{ inputs.health_container }}
