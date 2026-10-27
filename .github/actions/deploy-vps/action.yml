@@ -43,6 +43,66 @@ runs:
         SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20"
 
         deploy() {
+          if [ "$APP_PATH" = "/opt/meu-log" ]; then
+            ssh $SSH_OPTS "$VPS_USER@$VPS_HOST" bash -s <<'MIGRATE_MEULOG' || return 1
+              set -e
+              if [ -d /opt/clew ] && [ ! -d /opt/meu-log ]; then
+                docker rm -f ms-clew-web ms-clew-jobs 2>/dev/null || true
+                mv /opt/clew /opt/meu-log
+                rm -f /opt/meu-log/docker-compose.prod.yml
+              fi
+              mkdir -p /opt/meu-log
+              if [ -f /opt/meu-log/.env ]; then
+                sed -i \
+                  -e 's/CLEW_DB_USER=clew/MEULOG_DB_USER=meulog/g' \
+                  -e 's/CLEW_/MEULOG_/g' \
+                  -e 's/clew\.minhasuite\.com/meulog.minhasuite.com/g' \
+                  /opt/meu-log/.env
+              fi
+              if docker ps --format '{{.Names}}' | grep -qx 'ms-postgres'; then
+                if docker exec ms-postgres psql -U postgres -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'clew';" 2>/dev/null | grep -q 1; then
+                  docker exec ms-postgres psql -U postgres -d postgres -c "ALTER ROLE clew RENAME TO meulog;" >/dev/null 2>&1 || true
+                fi
+                for old_db in $(docker exec ms-postgres psql -U postgres -d postgres -tAc "SELECT datname FROM pg_database WHERE datname LIKE 'clew_production%';" 2>/dev/null); do
+                  [ -n "$old_db" ] || continue
+                  new_db="meulog_${old_db#clew_}"
+                  exists=$(docker exec ms-postgres psql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$new_db';" 2>/dev/null || true)
+                  if [ -z "$exists" ]; then
+                    docker exec ms-postgres psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$old_db' AND pid <> pg_backend_pid();" >/dev/null 2>&1 || true
+                    docker exec ms-postgres psql -U postgres -d postgres -c "ALTER DATABASE \"$old_db\" RENAME TO \"$new_db\";" >/dev/null 2>&1 || true
+                  fi
+                done
+              fi
+              if docker volume inspect clew-storage >/dev/null 2>&1 && ! docker volume inspect meulog-storage >/dev/null 2>&1; then
+                docker volume create meulog-storage >/dev/null
+                docker run --rm -v clew-storage:/from:ro -v meulog-storage:/to alpine sh -c "cp -a /from/. /to/" 2>/dev/null || \
+                  docker run --rm -v clew-storage:/from:ro -v meulog-storage:/to ghcr.io/minhasuite/meulog:latest sh -c "cp -a /from/. /to/" 2>/dev/null || true
+              fi
+              if [ -d /opt/caddy/sites ]; then
+                rm -f /opt/caddy/sites/clew.conf
+                cat > /opt/caddy/sites/meulog.conf <<'CADDY'
+# meulog — monitor de erros self-hosted
+meulog.minhasuite.com {
+    encode gzip
+    reverse_proxy ms-meulog-web:3000
+}
+CADDY
+                docker exec minhasuite-caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || docker restart minhasuite-caddy >/dev/null 2>&1 || true
+              fi
+              for f in /opt/*/.env /opt/*/docker-compose*.yml; do
+                [ -f "$f" ] || continue
+                case "$f" in /opt/meu-log/*) continue ;; esac
+                sed -i \
+                  -e 's/clew\.minhasuite\.com/meulog.minhasuite.com/g' \
+                  -e 's/clew_s_/meulog_s_/g' \
+                  -e 's/clew_p_/meulog_p_/g' \
+                  -e 's/_CLEW_/_MEULOG_/g' \
+                  -e 's/\bCLEW_/MEULOG_/g' \
+                  "$f"
+              done
+MIGRATE_MEULOG
+          fi
+
           # `|| return 1` explícito: a função é chamada com `set +e` (para
           # capturar o código de saída), então um scp que falha não abortaria
           # sozinho — e o ssh subiria com o compose ANTIGO que já está lá.
