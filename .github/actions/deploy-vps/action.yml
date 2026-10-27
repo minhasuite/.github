@@ -78,9 +78,10 @@ runs:
                 docker run --rm -v clew-storage:/from:ro -v meulog-storage:/to alpine sh -c "cp -a /from/. /to/" 2>/dev/null || \
                   docker run --rm -v clew-storage:/from:ro -v meulog-storage:/to ghcr.io/minhasuite/meulog:latest sh -c "cp -a /from/. /to/" 2>/dev/null || true
               fi
-              if [ -d /opt/caddy/sites ]; then
-                rm -f /opt/caddy/sites/clew.conf
-                printf '%s\n' "# meulog — monitor de erros self-hosted" "meulog.minhasuite.com {" "    encode gzip" "    reverse_proxy ms-meulog-web:3000" "}" > /opt/caddy/sites/meulog.conf
+              CADDY_SITES=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/etc/caddy/sites"}}{{.Source}}{{end}}{{end}}' minhasuite-caddy 2>/dev/null || echo "/opt/caddy/sites")
+              if [ -n "$CADDY_SITES" ] && [ -d "$CADDY_SITES" ]; then
+                rm -f "$CADDY_SITES/clew.conf"
+                printf '%s\n' "# meulog — monitor de erros self-hosted" "meulog.minhasuite.com {" "    encode gzip" "    reverse_proxy ms-meulog-web:3000" "}" > "$CADDY_SITES/meulog.conf"
                 docker exec minhasuite-caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || docker restart minhasuite-caddy >/dev/null 2>&1 || true
               fi
               for f in /opt/*/.env /opt/*/docker-compose*.yml; do
