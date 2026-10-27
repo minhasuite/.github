@@ -80,13 +80,7 @@ runs:
               fi
               if [ -d /opt/caddy/sites ]; then
                 rm -f /opt/caddy/sites/clew.conf
-                cat > /opt/caddy/sites/meulog.conf <<'CADDY'
-# meulog — monitor de erros self-hosted
-meulog.minhasuite.com {
-    encode gzip
-    reverse_proxy ms-meulog-web:3000
-}
-CADDY
+                printf '%s\n' "# meulog — monitor de erros self-hosted" "meulog.minhasuite.com {" "    encode gzip" "    reverse_proxy ms-meulog-web:3000" "}" > /opt/caddy/sites/meulog.conf
                 docker exec minhasuite-caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || docker restart minhasuite-caddy >/dev/null 2>&1 || true
               fi
               for f in /opt/*/.env /opt/*/docker-compose*.yml; do
@@ -100,7 +94,7 @@ CADDY
                   -e 's/\bCLEW_/MEULOG_/g' \
                   "$f"
               done
-MIGRATE_MEULOG
+        MIGRATE_MEULOG
           fi
 
           # `|| return 1` explícito: a função é chamada com `set +e` (para
