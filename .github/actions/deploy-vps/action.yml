@@ -72,7 +72,20 @@ runs:
                     docker exec ms-postgres psql -U postgres -d postgres -c "ALTER DATABASE \"$old_db\" RENAME TO \"$new_db\";" >/dev/null 2>&1 || true
                   fi
                 done
+                if docker exec ms-postgres psql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'meulog_production_minhasuite';" 2>/dev/null | grep -q 1; then
+                  docker exec ms-postgres psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('meulog_production', 'meulog_production_minhasuite') AND pid <> pg_backend_pid();" >/dev/null 2>&1 || true
+                  docker exec ms-postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS meulog_production_old;" >/dev/null 2>&1 || true
+                  docker exec ms-postgres psql -U postgres -d postgres -c "ALTER DATABASE meulog_production RENAME TO meulog_production_old;" >/dev/null 2>&1 || true
+                  docker exec ms-postgres psql -U postgres -d postgres -c "CREATE DATABASE meulog_production WITH TEMPLATE meulog_production_minhasuite OWNER meulog;" >/dev/null 2>&1 || true
+                  docker exec ms-postgres psql -U postgres -d postgres -c "ALTER DATABASE meulog_production_minhasuite RENAME TO meulog_production_minhasuite_migrated;" >/dev/null 2>&1 || true
+                  docker exec ms-postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS meulog_production_old;" >/dev/null 2>&1 || true
+                fi
+                for db in meulog_production_tec meulog_production_tec_monde meulog_production_monde meulog_production_sample clew_production_tec clew_production_tec_monde clew_production_monde clew_production_sample; do
+                  docker exec ms-postgres psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$db' AND pid <> pg_backend_pid();" >/dev/null 2>&1 || true
+                  docker exec ms-postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS \"$db\";" >/dev/null 2>&1 || true
+                done
               fi
+              rm -f /opt/meu-log/storage/accounts/*tec* /opt/meu-log/storage/accounts/*monde* /opt/meu-log/storage/accounts/*sample* 2>/dev/null || true
               if docker volume inspect clew-storage >/dev/null 2>&1 && ! docker volume inspect meulog-storage >/dev/null 2>&1; then
                 docker volume create meulog-storage >/dev/null
                 docker run --rm -v clew-storage:/from:ro -v meulog-storage:/to alpine sh -c "cp -a /from/. /to/" 2>/dev/null || \
