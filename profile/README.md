@@ -25,7 +25,13 @@
 | | App | O que faz |
 |---|---|---|
 | 🧾 | [**Minhas Vendas**](https://www.minhasuite.com/vendas/?utm_source=github&utm_medium=referral&utm_campaign=org-readme) | Orçamento, pedido, caixa de balcão, estoque, compras e nota, com uma IA que diz o que comprar e quem cobrar. |
-| 📋 | [**Meu Gestor**](https://meugestor.minhasuite.com/?utm_source=github&utm_medium=referral&utm_campaign=org-readme) | Gestão com IA para atacado e varejo: fluxos com prazo e aprovação, conferência do recebimento pela nota, checklist do dia com metas e escala da equipe. Usa os dados do Minhas Vendas. |
+| 📋 | [**Meu Gestor**](https://www.minhasuite.com/gestor/?utm_source=github&utm_medium=referral&utm_campaign=org-readme) | Gestão com IA para atacado e varejo: fluxos com prazo e aprovação, conferência do recebimento pela nota, checklist do dia com metas e escala da equipe. Usa os dados do Minhas Vendas. |
+
+## Para a casa e a loja
+
+| | Projeto | O que faz |
+|---|---|---|
+| 🏠 | [**Minha Automação**](https://www.minhasuite.com/automacao/?utm_source=github&utm_medium=referral&utm_campaign=org-readme) | Luzes, tomadas, portões, câmeras e sensores num servidor que fica na sua rede: automações que rodam sem internet, painéis, avisos e app. [Código aberto](https://github.com/minhasuite/minha-automacao). |
 
 ## Um jeito só
 
