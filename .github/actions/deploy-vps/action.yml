@@ -11,6 +11,7 @@ inputs:
   app_path:         { description: "Diretório do módulo na VPS", required: true }
   compose_file:     { description: "Arquivo compose", required: true }
   health_container: { description: "Container a checar no /up", required: true }
+  health_path:      { description: "Caminho da checagem de saúde (o analytics, que é o Umami, usa /api/heartbeat)", required: false, default: "/up" }
 
 outputs:
   motivo:
@@ -38,6 +39,7 @@ runs:
         APP_PATH: ${{ inputs.app_path }}
         COMPOSE_FILE: ${{ inputs.compose_file }}
         HEALTH_CONTAINER: ${{ inputs.health_container }}
+        HEALTH_PATH: ${{ inputs.health_path }}
       run: |
         set -euo pipefail
         SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20"
@@ -86,7 +88,7 @@ runs:
             # demora mais que isso, e o sleep fixo dava um WARN mentiroso.
             OK=""
             for i in \$(seq 1 30); do
-              if docker exec $HEALTH_CONTAINER curl -fsS http://127.0.0.1:3000/up >/dev/null 2>&1; then
+              if docker exec $HEALTH_CONTAINER curl -fsS http://127.0.0.1:3000$HEALTH_PATH >/dev/null 2>&1; then
                 OK=1; break
               fi
               sleep 4
@@ -114,7 +116,7 @@ runs:
               \$C up -d
               ROLLBACK_OK=""
               for i in \$(seq 1 20); do
-                if docker exec $HEALTH_CONTAINER curl -fsS http://127.0.0.1:3000/up >/dev/null 2>&1; then
+                if docker exec $HEALTH_CONTAINER curl -fsS http://127.0.0.1:3000$HEALTH_PATH >/dev/null 2>&1; then
                   ROLLBACK_OK=1; break
                 fi
                 sleep 3
