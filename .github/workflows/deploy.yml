@@ -55,7 +55,7 @@ jobs:
     outputs:
       motivo: ${{ steps.vps.outputs.motivo }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - id: vps
         uses: minhasuite/.github/.github/actions/deploy-vps@master
         with:
@@ -74,7 +74,7 @@ jobs:
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     environment: production
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Aviso
         run: echo "O deploy anterior não alcançou a VPS. Repetindo de outro runner."
       - uses: minhasuite/.github/.github/actions/deploy-vps@master

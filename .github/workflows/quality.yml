@@ -63,7 +63,7 @@ jobs:
         run: |
           echo "DATABASE_TEST_URL=postgresql://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/${{ inputs.db_name }}" >> "$GITHUB_ENV"
           echo "REDIS_URL=redis://localhost:${{ job.services.redis.ports['6379'] }}/0" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Quality via Docker (self-hosted)
         if: runner.environment == 'self-hosted'
